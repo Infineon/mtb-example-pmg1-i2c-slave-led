@@ -7,7 +7,7 @@
  * Related Document: See README.md
  *
  *******************************************************************************
- * Copyright 2022, Cypress Semiconductor Corporation (an Infineon company) or
+ * Copyright 2022-2023, Cypress Semiconductor Corporation (an Infineon company) or
  * an affiliate of Cypress Semiconductor Corporation.  All rights reserved.
  *
  * This software, including source code, documentation and related
@@ -46,14 +46,58 @@
 #include "cy_pdl.h"
 #include "cybsp.h"
 #include "i2c_slave.h"
-
+#include "stdio.h"
+#include <inttypes.h>
 
 /*******************************************************************************
-* Function Prototypes
-********************************************************************************/
-/* Function to handle the error */
-static void handle_error(void);
+* Macros
+*******************************************************************************/
+#define CY_ASSERT_FAILED            (0u)
 
+/* Debug print macro to enable UART print */
+/* (For S0 - Debug print will be always zero as SCB UART is not available) */
+#if (!defined(CY_DEVICE_CCG3PA))
+#define DEBUG_PRINT         (0u)
+#endif
+
+
+#if DEBUG_PRINT
+
+/* Structure for UART Context */
+cy_stc_scb_uart_context_t CYBSP_UART_context;
+
+/* Variable used for tracking the print status */
+volatile bool ENTER_LOOP = true;
+
+/*******************************************************************************
+* Function Name: check_status
+********************************************************************************
+* Summary:
+*  Prints the error message.
+*
+* Parameters:
+*  error_msg - message to print if any error encountered.
+*  status - status obtained after evaluation.
+*
+* Return:
+* void
+*
+*******************************************************************************/
+void check_status(char *message, cy_rslt_t status)
+{
+    char error_msg[50];
+
+    sprintf(error_msg, "Error Code: 0x%08" PRIX32 "\n", status);
+
+    Cy_SCB_UART_PutString(CYBSP_UART_HW, "\r\n=====================================================\r\n");
+    Cy_SCB_UART_PutString(CYBSP_UART_HW, "\nFAIL: ");
+    Cy_SCB_UART_PutString(CYBSP_UART_HW, message);
+    Cy_SCB_UART_PutString(CYBSP_UART_HW, "\r\n");
+    Cy_SCB_UART_PutString(CYBSP_UART_HW, error_msg);
+    Cy_SCB_UART_PutString(CYBSP_UART_HW, "\r\n=====================================================\r\n");
+}
+
+#endif
 
 /*******************************************************************************
 * Function Name: main
@@ -83,55 +127,49 @@ int main(void)
     /* Board init failed. Stop program execution */
     if (result != CY_RSLT_SUCCESS)
     {
-        CY_ASSERT(0);
+        CY_ASSERT(CY_ASSERT_FAILED);
     }
+
+#if DEBUG_PRINT
+    /* Configure and enable the UART peripheral */
+    Cy_SCB_UART_Init(CYBSP_UART_HW, &CYBSP_UART_config, &CYBSP_UART_context);
+    Cy_SCB_UART_Enable(CYBSP_UART_HW);
+
+    /* Sequence to clear screen */
+    Cy_SCB_UART_PutString(CYBSP_UART_HW, "\x1b[2J\x1b[;H");
+
+    /* Print "Flash write" */
+    Cy_SCB_UART_PutString(CYBSP_UART_HW, "****************** ");
+    Cy_SCB_UART_PutString(CYBSP_UART_HW, "PMG1 MCU: I2C Slave LED");
+    Cy_SCB_UART_PutString(CYBSP_UART_HW, "****************** \r\n\n");
+#endif
+
 
     /* Initialize and configure the I2C slave SCB*/
     status = InitI2CSlave();
-
     if(status == I2C_FAILURE)
     {
-        /* NOTE: This function will block the CPU forever */
-        handle_error();
+#if DEBUG_PRINT
+        check_status("API InitI2CSlave failed with error code", status);
+#endif
+        CY_ASSERT(CY_ASSERT_FAILED);
     }
 
     /* Enable global interrupts */
     __enable_irq();
 
-    /*
-     * After the initialization is complete, keep processing the I2C slave buffer
-     */
+    /*After the initialization is complete, keep processing the I2C slave buffer*/
     for (;;)
     {
         /* Check I2C slave buffer for commands */
         CheckEzI2Cbuffer();
+#if DEBUG_PRINT
+        if (ENTER_LOOP)
+        {
+            Cy_SCB_UART_PutString(CYBSP_UART_HW, "Entered for loop\r\n");
+            ENTER_LOOP = false;
+        }
+#endif
     }
 }
-
-
-/*******************************************************************************
-* Function Name: handle_error
-********************************************************************************
-*
-* Summary:
-*  This is a blocking function. It disables the interrupt and waits
-*  in an infinite loop. This function is called when an error is
-*  encountered during initialization of the block
-*
-* Parameters:
-*  None
-*
-* Return:
-*  None
-*
-*******************************************************************************/
-static void handle_error(void)
-{
-    /* Disable all interrupts. */
-    __disable_irq();
-
-    /* Infinite loop. */
-    while(1u) {}
-}
-
 /* [] END OF FILE */
